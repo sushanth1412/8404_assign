@@ -1,0 +1,240 @@
+---
+title: "Breast cancer project 
+"
+output: html_document
+---
+
+```{r}
+# Installing mlbench package and loading Breast cancer data 
+install.packages("mlbench")
+library(mlbench)
+data(BreastCancer)
+BreastCancer = na.omit(BreastCancer)# removing observations/rows with NA values
+dim(BreastCancer)
+```
+
+```{r}
+#converting the p values/ charctersitics to  nunmeric from factor to perform numerical analysis on the data set 
+str(BreastCancer)
+BreastCancer_num = lapply(BreastCancer,as.numeric ) # applying as.numeric to all columns
+Breastcan = data.frame(BreastCancer_num)
+
+# converting Class values/ predictor variable to 0 for benign  and 1 for malignant 
+Breastcan["Class"][Breastcan["Class"]== "1"] = 0
+Breastcan["Class"][Breastcan["Class"]== "2"]= 1
+Breastcan$Id = as.character(Breastcan$Id)
+str(Breastcan)
+Bre_orig = Breastcan[2:11] # removing ID column from the data set 
+
+# seperating the predictor variable and response variables 
+Bre_x1 = Bre_orig[1:9]
+y = Bre_orig[,10]
+Bre_data = data.frame(Bre_x1,y)
+n = nrow(Bre_data)
+p = ncol(Bre_data) -1
+```
+
+
+
+```{r}
+# EDA
+table(Bre_orig$Class) # gives the total number of malignant and benign in sample  data set 
+
+library(GGally)
+ggpairs(Bre_orig) # generates scatter plot and corelation on the same plot to compare 
+
+library(corrplot)
+library(RColorBrewer)
+cor_bre = cor(Bre_orig) # calculate corelation matrix 
+corrplot(cor_bre, type= "lower", order="original", col=brewer.pal(n=8, name="RdYlBu")) # to visually identify which varibles are highly corrlelated 
+
+
+```
+```{r}
+#Logistic -regression on the whole data set 
+logreg_Bre  = glm(y~ ., data = Bre_data, family = "binomial") # logistic regression using glm function
+summary(logreg_Bre)
+
+# cross validation for logistic regression:
+
+nfolds=10
+fold_index=sample(nfolds,n,replace = TRUE)
+head(fold_index)
+lr_cv_bre=function(X1,y,fold_ind)
+  {
+  Xy=data.frame(X1,y=y)
+  nfolds=max(fold_ind)
+  if(!all.equal(sort(unique(fold_ind)),1:nfolds))stop("Invalid fold partition.")
+  cv_errors=numeric(nfolds)
+  for(fold in 1:nfolds){
+    tmp_fit=glm(y~.,data=Xy[fold_ind!=fold,],family ="binomial")
+    phat_test_logistic = predict(tmp_fit, Xy[fold_ind==fold,], type = "response")
+    yhat_test_logistic = ifelse(phat_test_logistic > 0.5, 1, 0)
+    yhat=predict(tmp_fit, Xy[fold_ind==fold,])
+    yobs=y[fold_ind==fold]
+    cv_errors[fold] = 1 - mean((yobs == yhat_test_logistic))
+  }
+  fold_sizes=numeric(nfolds)
+  for(fold in 1:nfolds)
+    fold_sizes[fold]=length(which(fold_ind==fold))
+  test_error=weighted.mean(cv_errors,w=fold_sizes)
+  return(test_error)
+}
+
+cv_lr=lr_cv_bre(Bre_data[,1:9],Bre_data[,10],fold_index)
+cv_lr
+```
+
+
+```{r}
+library(bestglm)  # function for subset selection 
+bss_fit_Bre_AIC = bestglm(Bre_data, family = binomial , IC = "AIC")
+bss_fit_Bre_BIC = bestglm(Bre_data, family = binomial , IC = "BIC")
+
+
+
+
+(best_Bre_AIC=bss_fit_Bre_AIC$ModelReport$Bestk) # identifying best fitting models for AIC 
+(best_Bre_BIC=bss_fit_Bre_BIC$ModelReport$Bestk)  # identifying best fitting models for BIC
+
+
+#plot 
+
+par(mfrow=c(1,2)) # multi panel 
+
+# plotting optimum number of preictors for AIC and BIC 
+plot(0:p, bss_fit_Bre_AIC$Subsets$AIC,xlab="Number of predictors",ylab="AIC",type="b")
+points(best_Bre_AIC, bss_fit_Bre_AIC$Subsets$AIC[best_Bre_AIC+1],col="red",pch=16)
+plot(0:p, bss_fit_Bre_BIC$Subsets$BIC,xlab="Number of predictors",ylab="BIC",type="b")
+points(best_Bre_BIC, bss_fit_Bre_BIC$Subsets$BIC[best_Bre_BIC+1],col="red",pch=16)
+ 
+bss_fit_Bre_BIC$Subsets
+
+
+
+pstar = 5 # no of predictor veriables 
+
+(bss_fit_Bre_BIC$Subsets[pstar+1,]) # to pull out the variable from BIC of the corresponding pstar 
+(indices=as.logical(bss_fit_Bre_BIC$Subsets[pstar+1,2:(p+1)]))
+Bre_data_red =  data.frame(Bre_x1[,indices],y) # createing a data frame from the 5 predictor vraiables ond responce vraiable 
+logreg_Bre1_fit = glm(y~., data = Bre_data_red , family ="binomial") # logistic regression on the new data frame 
+summary(logreg_Bre1_fit)
+
+```
+```{r}
+set.seed(1)
+nfolds=10
+fold_index=sample(nfolds,n,replace = TRUE)
+error_cv=function(X1,y,fold_ind)
+  {
+  Xy=data.frame(X1,y=y)
+  nfolds=max(fold_ind)
+  if(!all.equal(sort(unique(fold_ind)),1:nfolds))stop("Invalid fold partition.")
+  cv_errors=numeric(nfolds)
+  for(fold in 1:nfolds){
+    tmp_fit=glm(y~.,data=Xy[fold_ind!=fold,],family ="binomial")
+    phat_test_log = predict(tmp_fit, Xy[fold_ind==fold,], type = "response")
+    yhat_test_log = ifelse(phat_test_log > 0.5, 1, 0)
+    yhat=predict(tmp_fit, Xy[fold_ind==fold,])
+    yobs=y[fold_ind==fold]
+    cv_errors[fold] = 1 - mean((yobs == yhat_test_log))
+  }
+  fold_sizes=numeric(nfolds)
+  for(fold in 1:nfolds)
+    fold_sizes[fold]=length(which(fold_ind==fold))
+  test_error=weighted.mean(cv_errors,w=fold_sizes)
+  return(test_error)
+}
+
+Bre_red_x1 = Bre_data_red[,1:5]
+Bre_red_y = Bre_data_red[,6]
+sub_error=error_cv(Bre_red_x1,Bre_red_y,fold_index)
+sub_error
+```
+
+
+```{r}
+# lasso fit 
+set.seed(1)
+grid=10^seq(-5,5,length.out=100)
+
+#cross vaild
+lasso_cv_fit=cv.glmnet(as.matrix(Bre_x1),as.matrix(y),family="binomial",alpha=1,standardize=FALSE,lambda=grid,type.measure = "class")
+plot(lasso_cv_fit, xvar = "lambda",col=rainbow(10),label = TRUE)
+(lambda_lasso_min=lasso_cv_fit$lambda.min) # optimum tuning parameter
+which_lasso=which(lasso_cv_fit$lambda==lambda_lasso_min)
+which_lasso
+# lasso on full data set with varying grid 
+lasso_fit=glmnet(as.matrix(Bre_x1),as.matrix(y),family="binomial",alpha=1,standardize=FALSE,lambda=grid)
+plot(lasso_fit,xvar = "lambda",col=rainbow(10),label=TRUE)
+# fitting optimal value from cross validation to the glment function 
+lasso_fit_opt=glmnet(as.matrix(Bre_x1),as.matrix(y),family="binomial",alpha=1,standardize=FALSE,lambda=lambda_lasso_min)
+coef(lasso_fit, s = lambda_lasso_min)
+
+# cv_Test error with fair comparison by fixing the fold index
+lasso_cv_fit_test=cv.glmnet(as.matrix(Bre_x1),as.matrix(y),family="binomial",alpha=1,standardize=FALSE,lambda=grid,type.measure = "class", foldid = fold_index)
+(lambda_lasso_min_1=lasso_cv_fit_test$lambda.min) # optimum tuning parameter
+which_lasso_1=which(lasso_cv_fit_test$lambda==lambda_lasso_min_1)
+which_lasso_1
+lasso_cv_fit_test$cvm[which_lasso_1]
+
+```
+```{r}
+#lda 
+library(MASS)
+LDA_Bre_fit=lda(y~.,data = Bre_data) # lda using mass function
+LDA_Bre_fit
+
+lda_cv=function(X1,y,fold_ind) # function to calculate cv error on lda 
+  {
+  Xy=data.frame(X1,y=y)
+  nfolds=max(fold_ind)
+  if(!all.equal(sort(unique(fold_ind)),1:nfolds))stop("Invalid fold partition.")
+  cv_errors=numeric(nfolds)
+  for(fold in 1:nfolds){
+    tmp_fit=lda(Xy[fold_ind!=fold,]$y~.,data = Xy[fold_ind!=fold,][,-10])
+    yhat=predict(tmp_fit, Xy[fold_ind==fold,][,-10])
+    yhat_lda=yhat$class
+    yobs=y[fold_ind==fold]
+    cv_errors[fold] = 1 - mean((yobs == yhat_lda))
+  }
+  fold_sizes=numeric(nfolds)
+  for(fold in 1:nfolds)
+    fold_sizes[fold]=length(which(fold_ind==fold))
+  test_error=weighted.mean(cv_errors,w=fold_sizes)
+  return(test_error)
+}
+
+lda_cv(Bre_data[,1:9],Bre_data[,10],fold_index) # test error 
+```
+```{r}
+# QDA
+QDA_Bre_fit=qda(y~.,data = Bre_data)# qda using mass function
+QDA_Bre_fit
+
+# cv error for qda 
+qda_cv=function(X1,y,fold_ind)
+  {
+  Xy=data.frame(X1,y=y)
+  nfolds=max(fold_ind)
+  if(!all.equal(sort(unique(fold_ind)),1:nfolds))stop("Invalid fold partition.")
+  cv_errors=numeric(nfolds)
+  for(fold in 1:nfolds){
+    tmp_fit=qda(Xy[fold_ind!=fold,]$y~.,data = Xy[fold_ind!=fold,][,-10])
+    yhat=predict(tmp_fit, Xy[fold_ind==fold,][,-10])
+    yhat_lda=yhat$class
+    yobs=y[fold_ind==fold]
+    cv_errors[fold] = 1 - mean((yobs == yhat_lda))
+  }
+  fold_sizes=numeric(nfolds)
+  for(fold in 1:nfolds)
+    fold_sizes[fold]=length(which(fold_ind==fold))
+  test_error=weighted.mean(cv_errors,w=fold_sizes)
+  return(test_error)
+}
+
+qda_cv(Bre_data[,1:9],Bre_data[,10],fold_index)
+
+```
+
+
